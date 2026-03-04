@@ -6,7 +6,6 @@
 #include <vector>
 
 #include "sosnina_a_radix_simple_merge/common/include/common.hpp"
-#include "util/include/util.hpp"
 
 namespace sosnina_a_radix_simple_merge {
 
