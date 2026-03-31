@@ -1,14 +1,13 @@
-#include "sosnina_a_radix_simple_merge/tbb/include/ops_tbb.hpp"
+#include "sosnina_a_radix_simple_merge/stl/include/ops_stl.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <thread>
 #include <utility>
 #include <vector>
 
-#include "oneapi/tbb/parallel_for.h"
-#include "oneapi/tbb/partitioner.h"
 #include "sosnina_a_radix_simple_merge/common/include/common.hpp"
 #include "util/include/util.hpp"
 
@@ -21,10 +20,8 @@ constexpr int kRadixSize = 1 << kRadixBits;
 constexpr int kNumPasses = sizeof(int) / sizeof(uint8_t);
 constexpr uint32_t kSignFlip = 0x80000000U;
 constexpr size_t kMinElementsPerPart = 4096;
-/// На n < порога — крупнее части, меньше уровней merge (лучше E на малых входах).
 constexpr size_t kMinElementsPerPartSmall = 32768;
 constexpr size_t kSmallArrayThreshold = 1'000'000;
-/// От этого размера — «крупный» вход: целимся в ~не больше одной части на поток, глубже merge дороже.
 constexpr size_t kLargeArrayThreshold = 20'000'000;
 
 void RadixSortLSD(std::vector<int> &data, std::vector<int> &buffer) {
@@ -63,24 +60,51 @@ void SimpleMerge(const std::vector<int> &left, const std::vector<int> &right, st
   std::merge(left.begin(), left.end(), right.begin(), right.end(), result.begin());
 }
 
+/// Диапазон [begin, end) по индексам, до num_threads потоков (как грубый аналог parallel for).
+template <typename F>
+void ParallelForRange(size_t begin, size_t end, int num_threads, F &&fn) {
+  if (begin >= end) {
+    return;
+  }
+  num_threads = std::max(1, std::min(num_threads, static_cast<int>(end - begin)));
+  const size_t n = end - begin;
+  const size_t chunk = (n + static_cast<size_t>(num_threads) - 1) / static_cast<size_t>(num_threads);
+  std::vector<std::thread> threads;
+  for (int t = 0; t < num_threads; ++t) {
+    const size_t lo = begin + static_cast<size_t>(t) * chunk;
+    if (lo >= end) {
+      break;
+    }
+    const size_t hi = std::min(end, lo + chunk);
+    threads.emplace_back([lo, hi, &fn]() {
+      for (size_t i = lo; i < hi; ++i) {
+        fn(i);
+      }
+    });
+  }
+  for (auto &th : threads) {
+    th.join();
+  }
+}
+
 }  // namespace
 
-SosninaATestTaskTBB::SosninaATestTaskTBB(const InType &in) {
+SosninaATestTaskSTL::SosninaATestTaskSTL(const InType &in) {
   SetTypeOfTask(GetStaticTypeOfTask());
   GetInput() = in;
   GetOutput() = in;
 }
 
-bool SosninaATestTaskTBB::ValidationImpl() {
+bool SosninaATestTaskSTL::ValidationImpl() {
   return !GetInput().empty();
 }
 
-bool SosninaATestTaskTBB::PreProcessingImpl() {
+bool SosninaATestTaskSTL::PreProcessingImpl() {
   GetOutput() = GetInput();
   return true;
 }
 
-bool SosninaATestTaskTBB::RunImpl() {
+bool SosninaATestTaskSTL::RunImpl() {
   std::vector<int> &data = GetOutput();
   if (data.size() <= 1) {
     return true;
@@ -89,8 +113,6 @@ bool SosninaATestTaskTBB::RunImpl() {
   const int num_threads = ppc::util::GetNumThreads();
   const size_t min_chunk_base =
       (data.size() < kSmallArrayThreshold) ? kMinElementsPerPartSmall : kMinElementsPerPart;
-  // На больших массивах — не мельче ~ n/T (меньше лишних уровней merge, толще radix-куски).
-  // На малых — оставляем запас n/(2T), чтобы не раздувать число частей.
   const size_t per_thread_floor =
       data.size() >= kLargeArrayThreshold
           ? (data.size() / static_cast<size_t>(std::max(1, num_threads)))
@@ -118,13 +140,11 @@ bool SosninaATestTaskTBB::RunImpl() {
     pos += part_size;
   }
 
-  tbb::parallel_for(
-      0, num_parts,
-      [&](int i) {
-        std::vector<int> buffer(parts[static_cast<size_t>(i)].size());
-        RadixSortLSD(parts[static_cast<size_t>(i)], buffer);
-      },
-      tbb::simple_partitioner{});
+  ParallelForRange(0, static_cast<size_t>(num_parts), num_threads, [&](size_t i) {
+    auto &part = parts[i];
+    std::vector<int> buffer(part.size());
+    RadixSortLSD(part, buffer);
+  });
 
   std::vector<std::vector<int>> current = std::move(parts);
   while (current.size() > 1) {
@@ -132,17 +152,14 @@ bool SosninaATestTaskTBB::RunImpl() {
     std::vector<std::vector<int>> next(half);
 
     const size_t pair_count = current.size() / 2;
-    tbb::parallel_for(
-        size_t(0), pair_count,
-        [&](size_t idx) {
-          std::vector<int> &left = current[2 * idx];
-          std::vector<int> &right = current[(2 * idx) + 1];
-          next[idx].resize(left.size() + right.size());
-          SimpleMerge(left, right, next[idx]);
-          std::vector<int>().swap(left);
-          std::vector<int>().swap(right);
-        },
-        tbb::simple_partitioner{});
+    ParallelForRange(0, pair_count, num_threads, [&](size_t idx) {
+      auto &left = current[2 * idx];
+      auto &right = current[(2 * idx) + 1];
+      next[idx].resize(left.size() + right.size());
+      SimpleMerge(left, right, next[idx]);
+      std::vector<int>().swap(left);
+      std::vector<int>().swap(right);
+    });
     if (current.size() % 2 == 1) {
       next[half - 1] = std::move(current.back());
     }
@@ -153,7 +170,7 @@ bool SosninaATestTaskTBB::RunImpl() {
   return std::ranges::is_sorted(data);
 }
 
-bool SosninaATestTaskTBB::PostProcessingImpl() {
+bool SosninaATestTaskSTL::PostProcessingImpl() {
   return !GetOutput().empty();
 }
 

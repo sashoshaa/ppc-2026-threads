@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 #include "sosnina_a_radix_simple_merge/common/include/common.hpp"
+#include "util/include/util.hpp"
 
 namespace sosnina_a_radix_simple_merge {
 
@@ -93,22 +95,50 @@ bool SosninaATestTaskOMP::RunImpl() {
     return true;
   }
 
-  size_t mid = data.size() / 2;
-  std::vector<int> left_part(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(mid));
-  std::vector<int> right_part(data.begin() + static_cast<std::ptrdiff_t>(mid), data.end());
-  std::vector<int> left_buffer(left_part.size());
-  std::vector<int> right_buffer(right_part.size());
+  const int num_threads = ppc::util::GetNumThreads();
+  const int num_parts = std::min(num_threads, static_cast<int>(data.size()));
 
-#pragma omp parallel sections default(none) shared(left_part, left_buffer, right_part, right_buffer)
-  {
-#pragma omp section
-    RadixSortLSD(left_part, left_buffer);
-#pragma omp section
-    RadixSortLSD(right_part, right_buffer);
+  if (num_parts <= 1) {
+    std::vector<int> buffer(data.size());
+    RadixSortLSD(data, buffer);
+    return std::ranges::is_sorted(data);
   }
 
-  SimpleMerge(left_part, right_part, data);
+  std::vector<std::vector<int>> parts(num_parts);
+  const size_t base_size = data.size() / num_parts;
+  const size_t remainder = data.size() % num_parts;
+  size_t pos = 0;
 
+  for (int i = 0; i < num_parts; ++i) {
+    const size_t part_size = base_size + (std::cmp_less(i, remainder) ? 1 : 0);
+    parts[i].assign(data.begin() + static_cast<std::ptrdiff_t>(pos),
+                    data.begin() + static_cast<std::ptrdiff_t>(pos + part_size));
+    pos += part_size;
+  }
+
+#pragma omp parallel for num_threads(num_parts) default(none) shared(parts, num_parts)
+  for (int i = 0; i < num_parts; ++i) {
+    std::vector<int> buffer(parts[i].size());
+    RadixSortLSD(parts[i], buffer);
+  }
+
+  std::vector<std::vector<int>> current = std::move(parts);
+  while (current.size() > 1) {
+    const size_t half = (current.size() + 1) / 2;
+    std::vector<std::vector<int>> next(half);
+
+#pragma omp parallel for default(none) shared(current, next) schedule(static)
+    for (size_t i = 0; i < current.size() / 2; ++i) {
+      next[i].resize(current[2 * i].size() + current[(2 * i) + 1].size());
+      SimpleMerge(current[2 * i], current[(2 * i) + 1], next[i]);
+    }
+    if (current.size() % 2 == 1) {
+      next[half - 1] = std::move(current.back());
+    }
+    current = std::move(next);
+  }
+
+  data = std::move(current[0]);
   return std::ranges::is_sorted(data);
 }
 
