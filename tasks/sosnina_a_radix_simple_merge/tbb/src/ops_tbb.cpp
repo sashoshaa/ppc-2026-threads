@@ -87,18 +87,15 @@ bool SosninaATestTaskTBB::RunImpl() {
   }
 
   const int num_threads = ppc::util::GetNumThreads();
-  const size_t min_chunk_base =
-      (data.size() < kSmallArrayThreshold) ? kMinElementsPerPartSmall : kMinElementsPerPart;
+  const size_t min_chunk_base = (data.size() < kSmallArrayThreshold) ? kMinElementsPerPartSmall : kMinElementsPerPart;
   // На больших массивах — не мельче ~ n/T (меньше лишних уровней merge, толще radix-куски).
   // На малых — оставляем запас n/(2T), чтобы не раздувать число частей.
-  const size_t per_thread_floor =
-      data.size() >= kLargeArrayThreshold
-          ? (data.size() / static_cast<size_t>(std::max(1, num_threads)))
-          : (data.size() / static_cast<size_t>(std::max(1, 2 * num_threads)));
+  const size_t per_thread_floor = data.size() >= kLargeArrayThreshold
+                                      ? (data.size() / static_cast<size_t>(std::max(1, num_threads)))
+                                      : (data.size() / static_cast<size_t>(std::max(1, 2 * num_threads)));
   const size_t min_chunk = std::max(min_chunk_base, per_thread_floor);
   const int max_parts_by_grain = std::max(1, static_cast<int>(data.size() / min_chunk));
-  const int num_parts =
-      std::min({num_threads, static_cast<int>(data.size()), max_parts_by_grain});
+  const int num_parts = std::min({num_threads, static_cast<int>(data.size()), max_parts_by_grain});
 
   if (num_parts <= 1) {
     std::vector<int> buffer(data.size());
@@ -118,13 +115,10 @@ bool SosninaATestTaskTBB::RunImpl() {
     pos += part_size;
   }
 
-  tbb::parallel_for(
-      0, num_parts,
-      [&](int i) {
-        std::vector<int> buffer(parts[static_cast<size_t>(i)].size());
-        RadixSortLSD(parts[static_cast<size_t>(i)], buffer);
-      },
-      tbb::simple_partitioner{});
+  tbb::parallel_for(0, num_parts, [&](int i) {
+    std::vector<int> buffer(parts[static_cast<size_t>(i)].size());
+    RadixSortLSD(parts[static_cast<size_t>(i)], buffer);
+  }, tbb::simple_partitioner{});
 
   std::vector<std::vector<int>> current = std::move(parts);
   while (current.size() > 1) {
@@ -132,17 +126,14 @@ bool SosninaATestTaskTBB::RunImpl() {
     std::vector<std::vector<int>> next(half);
 
     const size_t pair_count = current.size() / 2;
-    tbb::parallel_for(
-        size_t(0), pair_count,
-        [&](size_t idx) {
-          std::vector<int> &left = current[2 * idx];
-          std::vector<int> &right = current[(2 * idx) + 1];
-          next[idx].resize(left.size() + right.size());
-          SimpleMerge(left, right, next[idx]);
-          std::vector<int>().swap(left);
-          std::vector<int>().swap(right);
-        },
-        tbb::simple_partitioner{});
+    tbb::parallel_for(size_t(0), pair_count, [&](size_t idx) {
+      std::vector<int> &left = current[2 * idx];
+      std::vector<int> &right = current[(2 * idx) + 1];
+      next[idx].resize(left.size() + right.size());
+      SimpleMerge(left, right, next[idx]);
+      std::vector<int>().swap(left);
+      std::vector<int>().swap(right);
+    }, tbb::simple_partitioner{});
     if (current.size() % 2 == 1) {
       next[half - 1] = std::move(current.back());
     }
