@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -36,16 +37,19 @@ void RadixSortLSD(std::vector<int> &data, std::vector<int> &buffer) {
 
     for (auto elem : data) {
       auto digit = static_cast<uint8_t>((static_cast<uint32_t>(elem) >> (pass * kRadixBits)) & 0xFF);
-      ++count[digit + 1];
+      ++count.at(static_cast<size_t>(digit) + 1U);
     }
 
     for (int i = 1; i <= kRadixSize; ++i) {
-      count[i] += count[i - 1];
+      const auto ui = static_cast<size_t>(i);
+      count.at(ui) += count.at(ui - 1U);
     }
 
     for (auto elem : data) {
       auto digit = static_cast<uint8_t>((static_cast<uint32_t>(elem) >> (pass * kRadixBits)) & 0xFF);
-      buffer[count[digit]++] = elem;
+      const auto di = static_cast<size_t>(digit);
+      const int write_pos = count.at(di)++;
+      buffer[static_cast<size_t>(write_pos)] = elem;
     }
 
     std::swap(data, buffer);
@@ -57,7 +61,7 @@ void RadixSortLSD(std::vector<int> &data, std::vector<int> &buffer) {
 }
 
 void SimpleMerge(const std::vector<int> &left, const std::vector<int> &right, std::vector<int> &result) {
-  std::merge(left.begin(), left.end(), right.begin(), right.end(), result.begin());
+  std::ranges::merge(left, right, result.begin());
 }
 
 /// Диапазон [begin, end) по индексам, до num_threads потоков (как грубый аналог parallel for).
@@ -66,19 +70,20 @@ void ParallelForRange(size_t begin, size_t end, int num_threads, F &&fn) {
   if (begin >= end) {
     return;
   }
+  std::decay_t<F> func{std::forward<F>(fn)};
   num_threads = std::max(1, std::min(num_threads, static_cast<int>(end - begin)));
   const size_t n = end - begin;
   const size_t chunk = (n + static_cast<size_t>(num_threads) - 1) / static_cast<size_t>(num_threads);
   std::vector<std::thread> threads;
-  for (int t = 0; t < num_threads; ++t) {
-    const size_t lo = begin + static_cast<size_t>(t) * chunk;
+  for (int thread_idx = 0; thread_idx < num_threads; ++thread_idx) {
+    const size_t lo = begin + (static_cast<size_t>(thread_idx) * chunk);
     if (lo >= end) {
       break;
     }
     const size_t hi = std::min(end, lo + chunk);
-    threads.emplace_back([lo, hi, &fn]() {
+    threads.emplace_back([lo, hi, &func]() {
       for (size_t i = lo; i < hi; ++i) {
-        fn(i);
+        func(i);
       }
     });
   }

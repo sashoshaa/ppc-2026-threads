@@ -39,16 +39,19 @@ void RadixSortLSD(std::vector<int> &data, std::vector<int> &buffer) {
 
     for (auto elem : data) {
       auto digit = static_cast<uint8_t>((static_cast<uint32_t>(elem) >> (pass * kRadixBits)) & 0xFF);
-      ++count[digit + 1];
+      ++count.at(static_cast<size_t>(digit) + 1U);
     }
 
     for (int i = 1; i <= kRadixSize; ++i) {
-      count[i] += count[i - 1];
+      const auto ui = static_cast<size_t>(i);
+      count.at(ui) += count.at(ui - 1U);
     }
 
     for (auto elem : data) {
       auto digit = static_cast<uint8_t>((static_cast<uint32_t>(elem) >> (pass * kRadixBits)) & 0xFF);
-      buffer[count[digit]++] = elem;
+      const auto di = static_cast<size_t>(digit);
+      const int write_pos = count.at(di)++;
+      buffer[static_cast<size_t>(write_pos)] = elem;
     }
 
     std::swap(data, buffer);
@@ -60,7 +63,7 @@ void RadixSortLSD(std::vector<int> &data, std::vector<int> &buffer) {
 }
 
 void SimpleMerge(const std::vector<int> &left, const std::vector<int> &right, std::vector<int> &result) {
-  std::merge(left.begin(), left.end(), right.begin(), right.end(), result.begin());
+  std::ranges::merge(left, right, result.begin());
 }
 
 }  // namespace
@@ -126,7 +129,7 @@ bool SosninaATestTaskTBB::RunImpl() {
     std::vector<std::vector<int>> next(half);
 
     const size_t pair_count = current.size() / 2;
-    tbb::parallel_for(size_t(0), pair_count, [&](size_t idx) {
+    tbb::parallel_for(static_cast<size_t>(0), pair_count, [&](size_t idx) {
       std::vector<int> &left = current[2 * idx];
       std::vector<int> &right = current[(2 * idx) + 1];
       next[idx].resize(left.size() + right.size());
