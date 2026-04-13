@@ -119,10 +119,13 @@ bool SosninaATestTaskSTL::RunImpl() {
   const size_t per_thread_floor = data.size() >= kLargeArrayThreshold
                                       ? (data.size() / static_cast<size_t>(std::max(1, num_threads)))
                                       : (data.size() / static_cast<size_t>(std::max(1, 2 * num_threads)));
-  const size_t min_chunk_base =
-      (data.size() < kMinElementsPerPartSmall)
-          ? std::max(size_t{1}, data.size() / static_cast<size_t>(std::max(1, 2 * num_threads)))
-          : ((data.size() < kSmallArrayThreshold) ? kMinElementsPerPartSmall : kMinElementsPerPart);
+  size_t min_chunk_base = kMinElementsPerPart;
+  if (data.size() < kMinElementsPerPartSmall) {
+    min_chunk_base =
+        std::max(size_t{1}, data.size() / static_cast<size_t>(std::max(1, 2 * num_threads)));
+  } else if (data.size() < kSmallArrayThreshold) {
+    min_chunk_base = kMinElementsPerPartSmall;
+  }
   const size_t min_chunk = std::max(min_chunk_base, per_thread_floor);
   const int max_parts_by_grain = std::max(1, static_cast<int>(data.size() / min_chunk));
   const int num_parts = std::min({num_threads, static_cast<int>(data.size()), max_parts_by_grain});
