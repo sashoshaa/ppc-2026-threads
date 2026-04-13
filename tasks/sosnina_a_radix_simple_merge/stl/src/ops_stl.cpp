@@ -121,8 +121,7 @@ bool SosninaATestTaskSTL::RunImpl() {
                                       : (data.size() / static_cast<size_t>(std::max(1, 2 * num_threads)));
   size_t min_chunk_base = kMinElementsPerPart;
   if (data.size() < kMinElementsPerPartSmall) {
-    min_chunk_base =
-        std::max(size_t{1}, data.size() / static_cast<size_t>(std::max(1, 2 * num_threads)));
+    min_chunk_base = std::max(size_t{1}, data.size() / static_cast<size_t>(std::max(1, 2 * num_threads)));
   } else if (data.size() < kSmallArrayThreshold) {
     min_chunk_base = kMinElementsPerPartSmall;
   }
