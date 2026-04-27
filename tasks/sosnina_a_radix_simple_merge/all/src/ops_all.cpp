@@ -6,7 +6,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <ranges>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -167,7 +166,7 @@ void ComputeChunkParams(size_t total_size, int mpi_size, std::vector<size_t> &ch
   const size_t remainder = total_size % static_cast<size_t>(mpi_size);
 
   for (int i = 0; i < mpi_size; ++i) {
-    chunk_sizes[static_cast<size_t>(i)] = base_chunk + (static_cast<size_t>(i) < remainder ? 1U : 0U);
+    chunk_sizes[static_cast<size_t>(i)] = base_chunk + (std::cmp_less(i, remainder) ? 1U : 0U);
     offsets[static_cast<size_t>(i)] =
         (i == 0) ? 0 : offsets[static_cast<size_t>(i - 1)] + chunk_sizes[static_cast<size_t>(i - 1)];
   }
