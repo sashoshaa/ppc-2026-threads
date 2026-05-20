@@ -187,8 +187,8 @@ void ScatterData(const std::vector<int> &array, std::vector<int> &local_data, co
   int *const recv_buf = local_data.empty() ? &recv_dummy : local_data.data();
   const int *const send_buf = array.empty() ? &recv_dummy : array.data();
 
-  MPI_Scatterv(send_buf, send_counts.data(), send_displs.data(), MPI_INT, recv_buf,
-               static_cast<int>(local_data.size()), MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Scatterv(send_buf, send_counts.data(), send_displs.data(), MPI_INT, recv_buf, static_cast<int>(local_data.size()),
+               MPI_INT, 0, MPI_COMM_WORLD);
 }
 
 std::vector<int> MergeTwoSorted(const std::vector<int> &left, const std::vector<int> &right) {
@@ -236,8 +236,8 @@ void ExchangeAndMerge(int partner, std::vector<int> &merged_data) {
   int *const send_buf = (my_size > 0) ? merged_data.data() : &send_dummy;
   int *const recv_buf = (partner_size > 0) ? partner_data.data() : &recv_dummy;
 
-  MPI_Sendrecv(send_buf, static_cast<int>(my_size), MPI_INT, partner, 1, recv_buf,
-               static_cast<int>(partner_size), MPI_INT, partner, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(send_buf, static_cast<int>(my_size), MPI_INT, partner, 1, recv_buf, static_cast<int>(partner_size),
+               MPI_INT, partner, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
   if (my_size == 0) {
     merged_data = std::move(partner_data);
